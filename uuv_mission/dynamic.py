@@ -2,8 +2,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
 import matplotlib.pyplot as plt
-from .terrain import generate_reference_and_limits
 import csv
+from .terrain import generate_reference_and_limits
+from .control import PDController  # importing the concrete controller implementation
 
 class Submarine:
     def __init__(self):
@@ -77,28 +78,41 @@ class Mission:
 
     @classmethod
     def from_csv(cls, file_name: str):
+        """Read mission data from a CSV file.
+        
+        Args:
+            file_name (str): Path to the CSV file containing mission data
+        """
+        try:
+            with open(file_name, newline='') as file:
+                reader = csv.reader(file)
+                next(reader)  # Skip header row
+                ref_vals, h_vals, d_vals = [], [], []
 
-        with open(file_name, newline='') as file:
-            reader = csv.reader(file)
-            next(reader)
-            ref_vals, h_vals, d_vals = [], [], []
+                for row in reader:
+                    ref_vals.append(float(row[0]))
+                    h_vals.append(float(row[1]))
+                    d_vals.append(float(row[2]))  # Fixed index from [2] to (2)
 
-            for row in reader:
-                ref_vals.append(float(row[0]))
-                h_vals.append(float(row[1]))
-                d_vals.append(float[2])
-
-        return cls(np.array(ref_vals, dtype=float),
-                   np.array(h_vals, dtype=float),
-                   np.array(d_vals, dtype=float))
+            return cls(np.array(ref_vals, dtype=float),
+                     np.array(h_vals, dtype=float),
+                     np.array(d_vals, dtype=float))
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Mission data file not found: {file_name}. Make sure the path is correct.")
 
 
 class ClosedLoop:
-    def __init__(self, plant: Submarine, controller):
+    def __init__(self, plant: Submarine, controller: PDController):
+        """Initialize the closed loop system with a plant and controller.
+        
+        Args:
+            plant (Submarine): The submarine system to control
+            controller (PDController): The PD controller instance
+        """
         self.plant = plant
         self.controller = controller
 
-    def simulate(self,  mission: Mission, disturbances: np.ndarray) -> Trajectory:
+    def simulate(self, mission: Mission, disturbances: np.ndarray) -> Trajectory:
 
         T = len(mission.reference)
         if len(disturbances) < T:
@@ -111,7 +125,8 @@ class ClosedLoop:
         for t in range(T):
             positions[t] = self.plant.get_position()
             observation_t = self.plant.get_depth()
-            # Call your controller here
+            # Call the PD controller to compute control action
+            actions[t] = self.controller.compute_control(t, observation_t, mission.reference)
             self.plant.transition(actions[t], disturbances[t])
 
         return Trajectory(positions)
